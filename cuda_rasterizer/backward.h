@@ -55,6 +55,7 @@ namespace BACKWARD
 		const float* proj_raw,
 		const float focal_x, float focal_y,
 		const float tan_fovx, float tan_fovy,
+		const float kernel_size,
 		const glm::vec3* campos,
 		const float3* dL_dmean2D,
 		const float* dL_dconics,
@@ -65,7 +66,9 @@ namespace BACKWARD
 		float* dL_dsh,
 		glm::vec3* dL_dscale,
 		glm::vec4* dL_drot,
-		float* dL_dtau);
+		float* dL_dtau,
+		const float4* conic_opacity,
+		float* dL_dopacity);
 }
 
 #endif
