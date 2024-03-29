@@ -162,7 +162,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         # Calculate the scaling factor
         if raster_settings.depth_threshold is not None:
             scaling_factor = torch.minimum(torch.ones_like(splat_depths), (splat_depths / raster_settings.depth_threshold) ** 2)
-            scaled_grad_means2D = scale_tensor(grad_means2D, scaling_factor)
+            scaled_grad_means2D = scale_tensor(grad_means2D, scaling_factor.unsqueeze(1))
         else:
             scaled_grad_means2D = grad_means2D
 
