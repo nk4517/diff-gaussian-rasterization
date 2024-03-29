@@ -18,6 +18,14 @@ def cpu_deep_copy_tuple(input_tuple):
     copied_tensors = [item.cpu().clone() if isinstance(item, torch.Tensor) else item for item in input_tuple]
     return tuple(copied_tensors)
 
+def scale_tensor(tensor, scaling_factor):
+    num_dims = len(tensor.shape)
+    for _ in range(num_dims - 2):
+        scaling_factor = scaling_factor.unsqueeze(-1)
+    scaling_factor_expanded = scaling_factor.expand_as(tensor)
+    return tensor * scaling_factor_expanded
+
+
 def rasterize_gaussians(
     means3D,
     means2D,
@@ -91,27 +99,27 @@ class _RasterizeGaussians(torch.autograd.Function):
         if raster_settings.debug:
             cpu_args = cpu_deep_copy_tuple(args) # Copy them before they can be corrupted
             try:
-                num_rendered, color, radii, geomBuffer, binningBuffer, imgBuffer, depth, opacity, n_touched = _C.rasterize_gaussians(*args)
+                num_rendered, color, radii, geomBuffer, binningBuffer, imgBuffer, depth, opacity, n_touched, splat_depths = _C.rasterize_gaussians(*args)
             except Exception as ex:
                 torch.save(cpu_args, "snapshot_fw.dump")
                 print("\nAn error occured in forward. Please forward snapshot_fw.dump for debugging.")
                 raise ex
         else:
-            num_rendered, color, radii, geomBuffer, binningBuffer, imgBuffer, depth, opacity, n_touched = _C.rasterize_gaussians(*args)
+            num_rendered, color, radii, geomBuffer, binningBuffer, imgBuffer, depth, opacity, n_touched, splat_depths = _C.rasterize_gaussians(*args)
 
         # Keep relevant tensors for backward
         ctx.raster_settings = raster_settings
         ctx.num_rendered = num_rendered
-        ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, sh, geomBuffer, binningBuffer, imgBuffer)
-        return color, radii, depth, opacity, n_touched
+        ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, sh, splat_depths, geomBuffer, binningBuffer, imgBuffer)
+        return color, radii, depth, opacity, n_touched, splat_depths
 
     @staticmethod
-    def backward(ctx, grad_out_color, grad_out_radii, grad_out_depth, grad_out_opacity, grad_n_touched):
+    def backward(ctx, grad_out_color, grad_out_radii, grad_out_depth, grad_out_opacity, grad_n_touched, grad_splath_depths):
 
         # Restore necessary values from context
         num_rendered = ctx.num_rendered
         raster_settings = ctx.raster_settings
-        colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, sh, geomBuffer, binningBuffer, imgBuffer = ctx.saved_tensors
+        colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, sh, splat_depths, geomBuffer, binningBuffer, imgBuffer = ctx.saved_tensors
 
         # Restructure args as C++ method expects them
         args = (raster_settings.bg,
@@ -150,7 +158,14 @@ class _RasterizeGaussians(torch.autograd.Function):
                 raise ex
         else:
              grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_sh, grad_scales, grad_rotations, grad_tau = _C.rasterize_gaussians_backward(*args)
-        
+
+        # Calculate the scaling factor
+        if raster_settings.depth_threshold is not None:
+            scaling_factor = torch.minimum(torch.ones_like(splat_depths), (splat_depths / raster_settings.depth_threshold) ** 2)
+            scaled_grad_means2D = scale_tensor(grad_means2D, scaling_factor)
+        else:
+            scaled_grad_means2D = grad_means2D
+
         grad_tau = torch.sum(grad_tau.view(-1, 6), dim=0)
         grad_rho = grad_tau[:3].view(1, -1)
         grad_theta = grad_tau[3:].view(1, -1)
@@ -158,7 +173,7 @@ class _RasterizeGaussians(torch.autograd.Function):
 
         grads = (
             grad_means3D,
-            grad_means2D,
+            scaled_grad_means2D,
             grad_sh,
             grad_colors_precomp,
             grad_opacities,
@@ -186,6 +201,7 @@ class GaussianRasterizationSettings(NamedTuple):
     sh_degree : int
     campos : torch.Tensor
     prefiltered : bool
+    depth_threshold: float | None
     debug : bool
 
 class GaussianRasterizer(nn.Module):

@@ -54,6 +54,7 @@ namespace CudaRasterizer
 			float* out_opacity,
 			int* radii = nullptr,
 			int* n_touched = nullptr,
+            float* out_splat_depths = nullptr,
 			bool debug = false);
 
 		static void backward(
