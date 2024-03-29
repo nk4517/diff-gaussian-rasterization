@@ -236,11 +236,6 @@ int CudaRasterizer::Rasterizer::forward(
 		radii = geomState.internal_radii;
 	}
 
-	if (out_splath_depths == nullptr)
-	{
-		out_splath_depths = geomState.depths;
-	}
-
 	dim3 tile_grid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y, 1);
 	dim3 block(BLOCK_X, BLOCK_Y, 1);
 
@@ -274,12 +269,13 @@ int CudaRasterizer::Rasterizer::forward(
 		kernel_size,
 		radii,
 		geomState.means2D,
-		out_splath_depths,
+        geomState.depths,
 		geomState.cov3D,
 		geomState.rgb,
 		geomState.conic_opacity,
 		tile_grid,
 		geomState.tiles_touched,
+        out_splath_depths,
 		prefiltered
 	), debug)
 
