@@ -32,7 +32,7 @@ std::function<char*(size_t N)> resizeFunctional(torch::Tensor& t) {
     return lambda;
 }
 
-std::tuple<int, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<int, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 RasterizeGaussiansCUDA(
 	const torch::Tensor& background,
 	const torch::Tensor& means3D,
@@ -73,6 +73,8 @@ RasterizeGaussiansCUDA(
   torch::Tensor out_splat_depths = torch::full({P}, 0.0, float_opts);
   torch::Tensor out_depth = torch::full({1, H, W}, 0.0, float_opts);
   torch::Tensor out_opaticy = torch::full({1, H, W}, 0.0, float_opts);
+  torch::Tensor n_dominated = torch::full({P}, 0, int_opts);
+  torch::Tensor out_dominating_splat = torch::full({H, W}, -1, int_opts);
 
   torch::Device device(torch::kCUDA);
   torch::TensorOptions options(torch::kByte);
@@ -120,9 +122,11 @@ RasterizeGaussiansCUDA(
 		radii.contiguous().data<int>(),
 		n_touched.contiguous().data<int>(),
 		out_splat_depths.contiguous().data<float>(),
+        n_dominated.contiguous().data<int>(),
+        out_dominating_splat.contiguous().data<int>(),
         debug);
   }
-  return std::make_tuple(rendered, out_color, radii, geomBuffer, binningBuffer, imgBuffer, out_depth, out_opaticy, n_touched, out_splat_depths);
+  return std::make_tuple(rendered, out_color, radii, geomBuffer, binningBuffer, imgBuffer, out_depth, out_opaticy, n_touched, out_splat_depths, n_dominated, out_dominating_splat);
 }
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>

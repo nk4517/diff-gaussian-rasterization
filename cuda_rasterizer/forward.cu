@@ -291,7 +291,9 @@ renderCUDA(
 	const float* __restrict__ depth,
 	float* __restrict__ out_depth, 
 	float* __restrict__ out_opacity,
-	int * __restrict__ n_touched)
+	int * __restrict__ n_touched,
+    int * __restrict__ n_dominated,
+    int * __restrict__ out_dominating_splat)
 {
 	// Identify current tile and associated min/max pixel range.
 	auto block = cg::this_thread_block();
@@ -325,6 +327,9 @@ renderCUDA(
 	uint32_t last_contributor = 0;
 	float C[CHANNELS] = { 0 };
 	float D = 0.0f;
+
+    float dominating_alpha = 0;
+    int dominating_splat = -1;
 
 	// Iterate over batches until all done or range is complete
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
@@ -389,6 +394,11 @@ renderCUDA(
 			// Keep track of last range entry to update this
 			// pixel.
 			last_contributor = contributor;
+
+            if (alpha > dominating_alpha) {
+                dominating_splat = collected_id[j];
+                dominating_alpha = alpha;
+            }
 		}
 	}
 
@@ -403,6 +413,12 @@ renderCUDA(
 		}
 		out_depth[pix_id] = D;
 		out_opacity[pix_id] = 1 - T;
+
+
+        out_dominating_splat[pix_id] = dominating_splat;
+        if (dominating_splat >= 0) {
+            atomicAdd(&(n_dominated[dominating_splat]), 1);
+        }
 	}
 }
 
@@ -421,7 +437,10 @@ void FORWARD::render(
 	const float* depth,
 	float* out_depth, 
 	float* out_opacity,
-	int* n_touched)
+	int* n_touched,
+    int* n_dominated,
+    int* out_dominating_splat
+    )
 {
 	renderCUDA<NUM_CHANNELS> << <grid, block >> > (
 		ranges,
@@ -437,7 +456,9 @@ void FORWARD::render(
 		depth,
 		out_depth,
 		out_opacity,
-		n_touched);
+		n_touched,
+        n_dominated,
+        out_dominating_splat);
 }
 
 void FORWARD::preprocess(int P, int D, int M,
