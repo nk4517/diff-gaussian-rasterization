@@ -19,8 +19,8 @@ def cpu_deep_copy_tuple(input_tuple):
     return tuple(copied_tensors)
 
 def scale_tensor(tensor, scaling_factor):
-    num_dims = len(tensor.shape)
-    for _ in range(num_dims - 2):
+    assert tensor.shape[0] == scaling_factor.shape[0]
+    while len(tensor.shape) > len(scaling_factor.shape):
         scaling_factor = scaling_factor.unsqueeze(-1)
     scaling_factor_expanded = scaling_factor.expand_as(tensor)
     return tensor * scaling_factor_expanded
@@ -162,9 +162,15 @@ class _RasterizeGaussians(torch.autograd.Function):
         # Calculate the scaling factor
         if raster_settings.depth_threshold is not None:
             scaling_factor = torch.minimum(torch.ones_like(splat_depths), (splat_depths / raster_settings.depth_threshold) ** 2)
-            scaled_grad_means2D = scale_tensor(grad_means2D, scaling_factor.unsqueeze(1))
-        else:
-            scaled_grad_means2D = grad_means2D
+
+            grad_means3D = scale_tensor(grad_means3D, scaling_factor)
+            grad_means2D = scale_tensor(grad_means2D, scaling_factor)
+            grad_colors_precomp = scale_tensor(grad_colors_precomp, scaling_factor)
+            grad_opacities = scale_tensor(grad_opacities, scaling_factor)
+            grad_sh = scale_tensor(grad_sh, scaling_factor)
+            grad_scales = scale_tensor(grad_scales, scaling_factor)
+            grad_rotations = scale_tensor(grad_rotations, scaling_factor)
+
 
         grad_tau = torch.sum(grad_tau.view(-1, 6), dim=0)
         grad_rho = grad_tau[:3].view(1, -1)
@@ -173,7 +179,7 @@ class _RasterizeGaussians(torch.autograd.Function):
 
         grads = (
             grad_means3D,
-            scaled_grad_means2D,
+            grad_means2D,
             grad_sh,
             grad_colors_precomp,
             grad_opacities,
@@ -210,7 +216,7 @@ class GaussianRasterizer(nn.Module):
         self.raster_settings = raster_settings
 
     def markVisible(self, positions):
-        # Mark visible points (based on frustum culling for camera) with a boolean 
+        # Mark visible points (based on frustum culling for camera) with a boolean
         with torch.no_grad():
             raster_settings = self.raster_settings
             visible = _C.mark_visible(
